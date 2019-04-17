@@ -173,11 +173,11 @@ write_parameter(IO_CACHE *file, const uchar* base, File_option *parameter)
   {
     /* string have to be allocated already */
     LEX_STRING *val_s= (LEX_STRING *)(base + parameter->offset);
-    time_t tm= my_time(0);
-
-    get_date(val_s->str, GETDATE_DATE_TIME|GETDATE_GMT|GETDATE_FIXEDLENGTH,
-	     tm);
-    val_s->length= PARSE_FILE_TIMESTAMPLENGTH;
+    ulonglong tm= my_hrtime().val;
+    // Paded to 19 characters for compatibility
+    val_s->length= snprintf(val_s->str, MICROSECOND_TIMESTAMP_BUFFER_SIZE,
+                            "%019lld", tm);
+    DBUG_ASSERT(val_s->length == MICROSECOND_TIMESTAMP_BUFFER_SIZE-1);
     if (my_b_write(file, (const uchar *)val_s->str,
                     PARSE_FILE_TIMESTAMPLENGTH))
       DBUG_RETURN(TRUE);
@@ -834,15 +834,15 @@ File_parser::parse(uchar* base, MEM_ROOT *mem_root,
 	  /* string have to be allocated already */
 	  LEX_STRING *val= (LEX_STRING *)(base + parameter->offset);
 	  /* yyyy-mm-dd HH:MM:SS = 19(PARSE_FILE_TIMESTAMPLENGTH) characters */
-	  if (ptr[PARSE_FILE_TIMESTAMPLENGTH] != '\n')
+	  if (ptr[MICROSECOND_TIMESTAMP_BUFFER_SIZE-1] != '\n')
 	  {
 	    my_error(ER_FPARSER_ERROR_IN_PARAMETER, MYF(0),
                      parameter->name.str, line);
 	    DBUG_RETURN(TRUE);
 	  }
-	  memcpy(val->str, ptr, PARSE_FILE_TIMESTAMPLENGTH);
-	  val->str[val->length= PARSE_FILE_TIMESTAMPLENGTH]= '\0';
-	  ptr+= (PARSE_FILE_TIMESTAMPLENGTH+1);
+	  memcpy(val->str, ptr, MICROSECOND_TIMESTAMP_BUFFER_SIZE-1);
+	  val->str[val->length= MICROSECOND_TIMESTAMP_BUFFER_SIZE-1]= '\0';
+	  ptr+= MICROSECOND_TIMESTAMP_BUFFER_SIZE;
 	  break;
 	}
 	case FILE_OPTIONS_STRLIST:

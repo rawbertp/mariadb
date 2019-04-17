@@ -4146,6 +4146,9 @@ bool Prepared_statement::prepare(const char *packet, uint packet_len)
   Query_arena *old_stmt_arena;
   DBUG_ENTER("Prepared_statement::prepare");
   DBUG_ASSERT(m_sql_mode == thd->variables.sql_mode);
+
+  // The same format as for triggers to compare
+  ms_prepare_time= my_hrtime().val;
   /*
     If this is an SQLCOM_PREPARE, we also increase Com_prepare_sql.
     However, it seems handy if com_stmt_prepare is increased always,
@@ -4404,8 +4407,9 @@ Prepared_statement::execute_loop(String *expanded_query,
                                  uchar *packet_end)
 {
   Reprepare_observer reprepare_observer;
-  bool error;
+  ulonglong first_prepared= ms_prepare_time;
   int reprepare_attempt= 0;
+  bool error;
   iterations= FALSE;
 
   /*
@@ -4488,6 +4492,22 @@ reexecute:
   {
     DBUG_ASSERT(thd->get_stmt_da()->sql_errno() == ER_NEED_REPREPARE);
     thd->clear_error();
+
+    {
+      /*
+        Check if we too fast with reprepare:
+        we can be so fast that:
+          1) make change of a trigger,
+          2) prepare,
+          3) try to exacute and reprepare
+        in 1 microsecond, so we will wait till
+        next microsecond before last reprepare
+      */
+      while (first_prepared == my_hrtime().val)
+      {
+        pthread_yield();
+      }
+    }
 
     error= reprepare();
 

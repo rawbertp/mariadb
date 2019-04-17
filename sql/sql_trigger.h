@@ -115,7 +115,7 @@ public:
   GRANT_INFO subject_table_grants;
   sql_mode_t sql_mode;
   /* Store create time. Can't be mysql_time_t as this holds also sub seconds */
-  ulonglong create_time;
+  ulonglong ms_create_time; // Create time timestamp in microseconds
   trg_event_type event;
   trg_action_time_type action_time;
   uint action_order;
@@ -198,7 +198,7 @@ public:
   */
   List<ulonglong> definition_modes_list;
   /** Create times for triggers */
-  List<ulonglong> create_times;
+  List<ulonglong> ms_create_times;
 
   List<LEX_CSTRING>  definers_list;
 
@@ -327,5 +327,15 @@ bool mysql_create_or_drop_trigger(THD *thd, TABLE_LIST *tables, bool create);
 
 extern const char * const TRG_EXT;
 extern const char * const TRN_EXT;
+
+
+/**
+  Make time compatible with MySQL 5.7 trigger time.
+*/
+
+inline ulonglong make_ms_time(my_time_t time, ulong time_sec_part)
+{
+  return ((ulonglong) time)*1000000 + time_sec_part;
+}
 
 #endif /* SQL_TRIGGER_INCLUDED */
