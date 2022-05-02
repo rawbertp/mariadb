@@ -791,4 +791,25 @@ public:
   { return get_item_copy<Item_func_json_overlaps>(thd, this); }
 };
 
+class Item_func_json_schema_valid: public Item_bool_func
+{
+  String tmp_js;
+  bool a2_constant, a2_parsed;
+  String tmp_val, *val;
+  st_json_schema curr_step[JSON_DEPTH_LIMIT];
+  int count;
+public:
+  Item_func_json_schema_valid(THD *thd, Item *a, Item *b):
+    Item_bool_func(thd, a, b) { count= 0;}
+  LEX_CSTRING func_name_cstring() const override
+  {
+    static LEX_CSTRING name= {STRING_WITH_LEN("json_schema_valid") };
+    return name;
+  }
+  bool fix_length_and_dec(THD *thd) override;
+  longlong val_int() override;
+  Item *get_copy(THD *thd) override
+  { return get_item_copy<Item_func_json_schema_valid>(thd, this); }
+};
+
 #endif /* ITEM_JSONFUNC_INCLUDED */
