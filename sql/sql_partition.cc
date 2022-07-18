@@ -3675,6 +3675,7 @@ uint32 get_partition_id_range_for_endpoint(partition_info *part_info,
     part_info->part_expr->val_int_endpoint(left_endpoint, &include_endpoint);
   if (part_info->vers_info)
   {
+    include_endpoint= true;
     if (part_func_value < INT_MAX32) /* Historical query */
       max_partition--;
     else                             /* Current data query */
