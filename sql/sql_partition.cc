@@ -3669,10 +3669,18 @@ uint32 get_partition_id_range_for_endpoint(partition_info *part_info,
   longlong *range_array= part_info->range_int_array;
   longlong part_end_val;
   uint max_partition= part_info->num_parts - 1;
-  uint min_part_id= 0, max_part_id= max_partition, loc_part_id;
+  uint min_part_id= 0, max_part_id, loc_part_id;
   /* Get the partitioning function value for the endpoint */
   longlong part_func_value= 
     part_info->part_expr->val_int_endpoint(left_endpoint, &include_endpoint);
+  if (part_info->vers_info)
+  {
+    if (part_func_value < INT_MAX32) /* Historical query */
+      max_partition--;
+    else                             /* Current data query */
+      min_part_id= max_partition;
+  }
+  max_part_id= max_partition;
 
   bool unsigned_flag= part_info->part_expr->unsigned_flag;
   DBUG_ENTER("get_partition_id_range_for_endpoint");
@@ -3726,7 +3734,8 @@ uint32 get_partition_id_range_for_endpoint(partition_info *part_info,
   {
     DBUG_ASSERT(part_func_value > part_end_val ?
                 (loc_part_id == max_partition &&
-                 !part_info->defined_max_value) :
+                 (!part_info->defined_max_value ||
+                  part_info->part_type == VERSIONING_PARTITION)) :
                 1);
     /*
       In case of PARTITION p VALUES LESS THAN MAXVALUE
@@ -3737,17 +3746,6 @@ uint32 get_partition_id_range_for_endpoint(partition_info *part_info,
     if (part_func_value >= part_end_val &&
         (loc_part_id < max_partition || !part_info->defined_max_value))
       loc_part_id++;
-    if (part_info->part_type == VERSIONING_PARTITION &&
-        part_func_value < INT_MAX32 &&
-        loc_part_id > part_info->vers_info->hist_part->id)
-    {
-      /*
-        Historical query with AS OF point after the last history partition must
-        include last history partition because it can be overflown (contain
-        history rows out of right endpoint).
-      */
-      loc_part_id= part_info->vers_info->hist_part->id;
-    }
   }
   else 
   {

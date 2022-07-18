@@ -2275,6 +2275,24 @@ bool partition_info::fix_parser_data(THD *thd)
           key_algorithm == KEY_ALGORITHM_NONE)
         key_algorithm= KEY_ALGORITHM_55;
     }
+    else if (part_type == VERSIONING_PARTITION)
+    {
+      while ((part_elem= it++))
+      {
+        /*
+          NOTE: if we are in prep_alter_part_table() preparing alt_part_info,
+          there can be no CURRENT partition
+          (f.ex. when adding more history partitions).
+        */
+        if (part_elem->type == partition_element::CURRENT)
+        {
+          defined_max_value= true;
+          break;
+        }
+        else
+          DBUG_ASSERT(part_elem->type == partition_element::HISTORY);
+      }
+    }
     DBUG_RETURN(FALSE);
   }
   if (is_sub_partitioned() && list_of_subpart_fields)
