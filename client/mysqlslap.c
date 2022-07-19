@@ -86,6 +86,7 @@ TODO:
 #include <my_dir.h>
 #include <signal.h>
 #include <sslopt-vars.h>
+#include <my_rdtsc.h>
 #ifndef __WIN__
 #include <sys/wait.h>
 #endif
@@ -206,7 +207,7 @@ struct option_string {
 typedef struct stats stats;
 
 struct stats {
-  long int timing;
+  long long timing;
   uint users;
   unsigned long long rows;
 };
@@ -222,9 +223,9 @@ typedef struct conclusions conclusions;
 
 struct conclusions {
   char *engine;
-  long int avg_timing;
-  long int max_timing;
-  long int min_timing;
+  long long avg_timing;
+  long long max_timing;
+  long long min_timing;
   uint users;
   unsigned long long avg_rows;
   /* The following are not used yet */
@@ -269,30 +270,6 @@ static const char ALPHANUMERICS[]=
   "0123456789ABCDEFGHIJKLMNOPQRSTWXYZabcdefghijklmnopqrstuvwxyz";
 
 #define ALPHANUMERICS_SIZE (sizeof(ALPHANUMERICS)-1)
-
-
-static long int timedif(struct timeval a, struct timeval b)
-{
-    register int us, s;
- 
-    us = a.tv_usec - b.tv_usec;
-    us /= 1000;
-    s = a.tv_sec - b.tv_sec;
-    s *= 1000;
-    return s + us;
-}
-
-#ifdef __WIN__
-static int gettimeofday(struct timeval *tp, void *tzp)
-{
-  unsigned int ticks;
-  ticks= GetTickCount();
-  tp->tv_usec= ticks*1000;
-  tp->tv_sec= ticks/1000;
-
-  return 0;
-}
-#endif
 
 void set_mysql_connect_options(MYSQL *mysql)
 {
@@ -1779,7 +1756,7 @@ static int
 run_scheduler(stats *sptr, statement *stmts, uint concur, ulonglong limit)
 {
   uint x;
-  struct timeval start_time, end_time;
+  ulonglong start_time, end_time;
   thread_context con;
   pthread_t mainthread;            /* Thread descriptor */
   pthread_attr_t attr;          /* Thread attributes */
@@ -1818,7 +1795,7 @@ run_scheduler(stats *sptr, statement *stmts, uint concur, ulonglong limit)
   pthread_cond_broadcast(&sleep_threshhold);
   pthread_mutex_unlock(&sleeper_mutex);
 
-  gettimeofday(&start_time, NULL);
+  start_time= my_timer_milliseconds();
 
   /*
     We loop until we know that all children have cleaned up.
@@ -1833,10 +1810,9 @@ run_scheduler(stats *sptr, statement *stmts, uint concur, ulonglong limit)
   }
   pthread_mutex_unlock(&counter_mutex);
 
-  gettimeofday(&end_time, NULL);
+  end_time= my_timer_milliseconds();
 
-
-  sptr->timing= timedif(end_time, start_time);
+  sptr->timing= end_time - start_time;
   sptr->users= concur;
   sptr->rows= limit;
 
@@ -2182,11 +2158,11 @@ print_conclusions(conclusions *con)
   printf("Benchmark\n");
   if (con->engine)
     printf("\tRunning for engine %s\n", con->engine);
-  printf("\tAverage number of seconds to run all queries: %ld.%03ld seconds\n",
+  printf("\tAverage number of seconds to run all queries: %lld.%03lld seconds\n",
                     con->avg_timing / 1000, con->avg_timing % 1000);
-  printf("\tMinimum number of seconds to run all queries: %ld.%03ld seconds\n",
+  printf("\tMinimum number of seconds to run all queries: %lld.%03lld seconds\n",
                     con->min_timing / 1000, con->min_timing % 1000);
-  printf("\tMaximum number of seconds to run all queries: %ld.%03ld seconds\n",
+  printf("\tMaximum number of seconds to run all queries: %lld.%03lld seconds\n",
                     con->max_timing / 1000, con->max_timing % 1000);
   printf("\tNumber of clients running queries: %d\n", con->users);
   printf("\tAverage number of queries per client: %llu\n", con->avg_rows); 
@@ -2200,7 +2176,7 @@ print_conclusions_csv(conclusions *con)
   const char *ptr= auto_generate_sql_type ? auto_generate_sql_type : "query";
 
   snprintf(buffer, HUGE_STRING_LENGTH, 
-           "%s,%s,%ld.%03ld,%ld.%03ld,%ld.%03ld,%d,%llu\n",
+           "%s,%s,%lld.%03lld,%lld.%03lld,%lld.%03lld,%d,%llu\n",
            con->engine ? con->engine : "", /* Storage engine we ran against */
            ptr, /* Load type */
            con->avg_timing / 1000, con->avg_timing % 1000, /* Time to load */
