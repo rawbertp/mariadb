@@ -409,7 +409,7 @@ ulonglong my_timer_ticks(void)
     return (ulonglong) times(&times_buf);
   }
 #elif defined(_WIN32)
-  return (ulonglong) GetTickCount();
+  return GetTickCount64();
 #else
   return 0;
 #endif
@@ -467,7 +467,7 @@ static void my_timer_init_overhead(ulonglong *overhead,
   figure (a guess based on maximum overhead * 2), ignore.
   Usually we end up with nanoseconds = 1 because it's too
   hard to detect anything <= 100 nanoseconds.
-  Often GetTickCount() has resolution = 15.
+  Often GetTickCount64() has resolution = 15.
   We don't check with ticks because they take too long.
 */
 static ulonglong my_timer_init_resolution(ulonglong (*this_timer)(void),
@@ -964,7 +964,7 @@ void my_timer_init(MY_TIMER_INFO *mti)
    (xtime) tick count, therefore should be fast, but usually
    isn't.
 
-   GetTickCount(): we use this for my_timer_ticks() on
+   GetTickCount64(): we use this for my_timer_ticks() on
    Windows. Actually it really is a tick counter, so resolution
    >= 10 milliseconds unless you have a very old Windows version.
    With Windows 95 or 98 or ME, timeGetTime() has better resolution than
@@ -976,8 +976,6 @@ void my_timer_init(MY_TIMER_INFO *mti)
    http://www.doumo.jp/aon-java/jsp/postgretips/tips.jsp?tips=74.
    Also timeGetTime requires linking winmm.lib,
    Therefore we use GetTickCount.
-   It will overflow every 49 days because the return is 32-bit.
-   There is also a GetTickCount64 but it requires Vista or Windows Server 2008.
    (As for GetSystemTimeAsFileTime, its precision is spurious, it
    just reads the tick variable like the other functions do.
    However, we don't expect it to overflow every 49 days, so we
