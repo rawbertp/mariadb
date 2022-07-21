@@ -2126,6 +2126,9 @@ public:
 	or ONLINE_INDEX_ABORTED_DROPPED. */
 	unsigned				drop_aborted:1;
 
+	/** TRUE if ONLINE ALTER TABLE is in progress */
+        unsigned				sql_is_online_alter:1;
+
 	/** Array of column descriptions. */
 	dict_col_t*				cols;
 
