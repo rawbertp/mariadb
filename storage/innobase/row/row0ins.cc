@@ -985,7 +985,7 @@ dberr_t wsrep_append_foreign_key(trx_t *trx,
 uint sql_log_cascade_update(TABLE *table);
 uint sql_log_cascade_delete(TABLE *table);
 
-static void row_ins_store_row_in_mysql(dtuple_t *row,
+static bool row_ins_store_row_in_mysql(dtuple_t *row,
                                        row_prebuilt_t *prebuilt,
                                        uchar *mysql_rec)
 {
@@ -1008,8 +1008,13 @@ static void row_ins_store_row_in_mysql(dtuple_t *row,
       ulint len= df->len;
 
       if (dfield_is_ext(df))
+      {
         data= btr_copy_externally_stored_field(&len, data,
-                                               prebuilt->table->space->zip_size(), len, prebuilt->blob_heap);
+                                            prebuilt->table->space->zip_size(),
+                                            len, prebuilt->blob_heap);
+        if (UNIV_UNLIKELY(data == NULL))
+          return false;
+      }
 
       row_sel_field_store_in_mysql_format(mysql_rec + templ->mysql_col_offset,
                                           templ, prebuilt->index,
@@ -1017,12 +1022,13 @@ static void row_ins_store_row_in_mysql(dtuple_t *row,
                                           data, len);
     }
 
-
     templ++;
   }
+  return true;
 }
 
-static bool report_row_update(upd_node_t *cascade, dict_index_t* clust_index)
+static dberr_t report_row_update(upd_node_t *cascade,
+                                 dict_index_t* clust_index)
 {
   dict_table_t *table= clust_index->table;
   TABLE *maria_table= innodb_find_table_for_vc(current_thd, table);
@@ -1035,38 +1041,49 @@ static bool report_row_update(upd_node_t *cascade, dict_index_t* clust_index)
   ulint n_ext= dtuple_get_n_ext(cascade->row)
                + (cascade->is_delete ? 0 : dtuple_get_n_ext(cascade->upd_row));
 
+  auto _= make_scope_exit([cascade, prebuilt, n_ext](){
+
+    cascade->row= NULL;
+    cascade->ext= NULL;
+    cascade->upd_row= NULL;
+    cascade->upd_ext= NULL;
+    mem_heap_empty(cascade->heap);
+    if (n_ext && prebuilt->blob_heap)
+    {
+      mem_heap_free(prebuilt->blob_heap);
+      prebuilt->blob_heap= NULL;
+    }
+  });
+
   if (n_ext)
   {
     if (UNIV_UNLIKELY(prebuilt->blob_heap != NULL))
       mem_heap_empty(prebuilt->blob_heap);
     prebuilt->blob_heap= mem_heap_create(srv_page_size);
+
+    if (UNIV_UNLIKELY(prebuilt->blob_heap == NULL))
+      return DB_OUT_OF_MEMORY;
   }
 
-  row_ins_store_row_in_mysql(cascade->row, prebuilt, maria_table->record[0]);
+  if (UNIV_UNLIKELY(!row_ins_store_row_in_mysql(cascade->row, prebuilt,
+                                                maria_table->record[0])))
+    return DB_OUT_OF_MEMORY;
+
   if (cascade->is_delete)
   {
-    sql_log_cascade_delete(maria_table);
+    if (UNIV_UNLIKELY(sql_log_cascade_delete(maria_table)))
+      return DB_ERROR;
   }
   else
   {
-    row_ins_store_row_in_mysql(cascade->upd_row, prebuilt,
-                               maria_table->record[1]);
-    sql_log_cascade_update(maria_table);
+    if (UNIV_UNLIKELY(!row_ins_store_row_in_mysql(cascade->upd_row, prebuilt,
+                                                  maria_table->record[1])))
+      return DB_OUT_OF_MEMORY;
+    if (UNIV_UNLIKELY(sql_log_cascade_update(maria_table)))
+      return DB_ERROR;
   }
 
-  cascade->row= NULL;
-  cascade->ext= NULL;
-  cascade->upd_row= NULL;
-  cascade->upd_ext= NULL;
-  mem_heap_empty(cascade->heap);
-
-  if (n_ext)
-  {
-    mem_heap_free(prebuilt->blob_heap);
-    prebuilt->blob_heap= NULL;
-  }
-
-  return true;
+  return DB_SUCCESS;
 }
 
 /*********************************************************************//**
@@ -1440,8 +1457,8 @@ row_ins_foreign_check_on_constraint(
 	err = row_update_cascade_for_mysql(thr, cascade,
 					   foreign->foreign_table);
 
-	if (!report_row_update(cascade, clust_index))
-		err = DB_CORRUPTION;
+	if (UNIV_UNLIKELY(table->sql_is_online_alter) && UNIV_LIKELY(!err))
+		err = report_row_update(cascade, clust_index);
 
 	mtr_start(mtr);
 
