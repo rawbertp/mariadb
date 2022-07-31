@@ -35,6 +35,11 @@
 #cmakedefine HAVE_FLOAT_H 1
 #cmakedefine HAVE_FNMATCH_H 1
 #cmakedefine HAVE_FPU_CONTROL_H 1
+#cmakedefine HAVE_GETMNTENT 1
+#cmakedefine HAVE_GETMNTENT_R 1
+#cmakedefine HAVE_GETMNTINFO 1
+#cmakedefine HAVE_GETMNTINFO64 1
+#cmakedefine HAVE_GETMNTINFO_TAKES_statvfs 1
 #cmakedefine HAVE_GRP_H 1
 #cmakedefine HAVE_IA64INTRIN_H 1
 #cmakedefine HAVE_IEEEFP_H 1
