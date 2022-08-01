@@ -81,6 +81,10 @@ static int disks_table_add_row_statfs(
                             (info.f_blocks - info.f_bfree)) / 1024;
     ulonglong avail = ((ulonglong) block_size * info.f_bavail) / 1024;
 
+    /* skip filesystems that don't store anything */
+    if (!info.f_blocks)
+	return 0;
+
     /* skip RO mounted filesystems */
 #if defined(HAVE_GETMNTINFO_TAKES_statvfs) || defined(HAVE_GETMNTENT)
     if (info.f_flag & ST_RDONLY)

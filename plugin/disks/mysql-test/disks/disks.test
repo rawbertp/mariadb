@@ -1,2 +1,19 @@
 show create table information_schema.disks;
 select sum(Total) > sum(Available), sum(Total)>sum(Used) from information_schema.disks;
+
+--echo
+--echo Designed to fail here, testing to see what a variety of bb machines have
+--echo
+
+--echo
+--echo mount
+exec mount;
+
+--echo
+--echo df -k
+exec df -k;
+
+--echo
+--echo
+
+select * from information_schema.disks;
