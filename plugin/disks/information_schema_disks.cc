@@ -81,6 +81,14 @@ static int disks_table_add_row_statfs(
                             (info.f_blocks - info.f_bfree)) / 1024;
     ulonglong avail = ((ulonglong) block_size * info.f_bavail) / 1024;
 
+    /* skip RO mounted filesystems */
+#if defined(HAVE_GETMNTINFO_TAKES_statvfs) || defined(HAVE_GETMNTENT)
+    if (info.f_flag & ST_RDONLY)
+#else
+    if (info.f_flags & MNT_RDONLY)
+#endif
+	return 0;
+
     pTable->field[0]->store(zDisk, strlen(zDisk), system_charset_info);
     pTable->field[1]->store(zPath, strlen(zPath), system_charset_info);
     pTable->field[2]->store(total);
@@ -187,11 +195,16 @@ int disks_fill_table(THD* pThd, TABLE_LIST* pTables, Item* pCond)
 #endif
         )
     {
-        // We only report the ones that refer to physical disks.
-        if (pEnt->mnt_fsname[0] == '/')
-        {
-            rv = disks_table_add_row(pThd, pTable, pEnt->mnt_fsname, pEnt->mnt_dir);
-        }
+        struct stat f;
+	// Try to keep to real storage by excluding
+        // read only mounts, and mount point that aren't directories
+        if (hasmntopt(pEnt, MNTOPT_RO) != NULL)
+            continue;
+        if (stat(pEnt->mnt_dir, &f))
+            continue;
+        if (!S_ISDIR(f.st_mode))
+            continue;
+        rv = disks_table_add_row(pThd, pTable, pEnt->mnt_fsname, pEnt->mnt_dir);
     }
 
 #ifdef HAVE_GETMNTENT_R
