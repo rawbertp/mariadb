@@ -655,3 +655,101 @@ select * from t2;
 unlock tables;
 
 drop tables t2, t1;
+
+--echo #
+--echo # MDEV-28933 CREATE OR REPLACE fails to recreate same constraint name
+--echo #
+create database `#sql-test`;
+use `#sql-test`;
+create table t (a int primary key) engine=innodb;
+create or replace table u (
+  a int primary key,
+  constraint c foreign key d (a) references t (a)) engine=innodb;
+
+select * from information_schema.innodb_sys_foreign;
+select * from information_schema.innodb_sys_foreign_cols;
+
+create or replace table u (
+  a int primary key,
+  constraint c foreign key d (a) references t (a)) engine=innodb;
+
+select * from information_schema.innodb_sys_foreign;
+select * from information_schema.innodb_sys_foreign_cols;
+drop database `#sql-test`;
+
+create database `#bak-test`;
+use `#bak-test`;
+create table t (a int primary key) engine=innodb;
+create or replace table u (
+  a int primary key,
+  constraint c foreign key d (a) references t (a)) engine=innodb;
+
+select * from information_schema.innodb_sys_foreign;
+select * from information_schema.innodb_sys_foreign_cols;
+
+create or replace table u (
+  a int primary key,
+  constraint c foreign key d (a) references t (a)) engine=innodb;
+
+select * from information_schema.innodb_sys_foreign;
+select * from information_schema.innodb_sys_foreign_cols;
+drop database `#bak-test`;
+
+use test;
+create table t (a int primary key) engine=innodb;
+
+create database `#mysql50##tmp-test`;
+create database `#mysql50##bak-test`;
+create table `#mysql50##tmp-test`.u (
+  a int primary key,
+  constraint c foreign key d(a) references test.t(a)) engine=innodb;
+create table `#mysql50##bak-test`.u (
+  a int primary key,
+  constraint c foreign key d(a) references test.t(a)) engine=innodb;
+
+create or replace table u (
+  a int primary key,
+  constraint c foreign key d (a) references t (a)) engine=innodb;
+create or replace table u (
+  a int primary key,
+  constraint c foreign key d (a) references t (a)) engine=innodb;
+
+drop database `#mysql50##tmp-test`;
+drop database `#mysql50##bak-test`;
+drop table u, t;
+
+create table t (a int primary key) engine=innodb;
+create or replace table u (
+  a int primary key,
+  constraint c foreign key d (a) references t (a)) engine=innodb;
+
+select * from information_schema.innodb_sys_foreign;
+select * from information_schema.innodb_sys_foreign_cols;
+
+create or replace table u (
+  a int primary key,
+  constraint c foreign key d (a) references t (a)) engine=innodb;
+
+select * from information_schema.innodb_sys_foreign;
+select * from information_schema.innodb_sys_foreign_cols;
+drop tables u, t;
+select * from information_schema.innodb_sys_foreign;
+select * from information_schema.innodb_sys_foreign_cols;
+
+set names utf8;
+let $d= `select repeat('❎', 45)`;
+let $t= `select repeat('❎', 64)`;
+eval create database `$d`;
+eval use `$d`;
+create table t (a int primary key) engine=innodb;
+eval create table u (
+  a int primary key,
+  constraint `$t` foreign key d (a) references t (a)) engine=innodb;
+select * from information_schema.innodb_sys_foreign;
+eval create or replace table u (
+  a int primary key,
+  constraint `$t` foreign key d (a) references t (a)) engine=innodb;
+select * from information_schema.innodb_sys_foreign;
+show create table u;
+use test;
+eval drop database `$d`;

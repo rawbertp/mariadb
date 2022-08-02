@@ -863,3 +863,118 @@ select * from t2;
 a
 unlock tables;
 drop tables t2, t1;
+#
+# MDEV-28933 CREATE OR REPLACE fails to recreate same constraint name
+#
+create database `#sql-test`;
+use `#sql-test`;
+create table t (a int primary key) engine=innodb;
+create or replace table u (
+a int primary key,
+constraint c foreign key d (a) references t (a)) engine=innodb;
+select * from information_schema.innodb_sys_foreign;
+ID	FOR_NAME	REF_NAME	N_COLS	TYPE
+@0023sql@002dtest/c	@0023sql@002dtest/u	@0023sql@002dtest/t	1	0
+select * from information_schema.innodb_sys_foreign_cols;
+ID	FOR_COL_NAME	REF_COL_NAME	POS
+@0023sql@002dtest/c	a	a	0
+create or replace table u (
+a int primary key,
+constraint c foreign key d (a) references t (a)) engine=innodb;
+select * from information_schema.innodb_sys_foreign;
+ID	FOR_NAME	REF_NAME	N_COLS	TYPE
+@0023sql@002dtest/c	@0023sql@002dtest/u	@0023sql@002dtest/t	1	0
+select * from information_schema.innodb_sys_foreign_cols;
+ID	FOR_COL_NAME	REF_COL_NAME	POS
+@0023sql@002dtest/c	a	a	0
+drop database `#sql-test`;
+create database `#bak-test`;
+use `#bak-test`;
+create table t (a int primary key) engine=innodb;
+create or replace table u (
+a int primary key,
+constraint c foreign key d (a) references t (a)) engine=innodb;
+select * from information_schema.innodb_sys_foreign;
+ID	FOR_NAME	REF_NAME	N_COLS	TYPE
+@0023bak@002dtest/c	@0023bak@002dtest/u	@0023bak@002dtest/t	1	0
+select * from information_schema.innodb_sys_foreign_cols;
+ID	FOR_COL_NAME	REF_COL_NAME	POS
+@0023bak@002dtest/c	a	a	0
+create or replace table u (
+a int primary key,
+constraint c foreign key d (a) references t (a)) engine=innodb;
+select * from information_schema.innodb_sys_foreign;
+ID	FOR_NAME	REF_NAME	N_COLS	TYPE
+@0023bak@002dtest/c	@0023bak@002dtest/u	@0023bak@002dtest/t	1	0
+select * from information_schema.innodb_sys_foreign_cols;
+ID	FOR_COL_NAME	REF_COL_NAME	POS
+@0023bak@002dtest/c	a	a	0
+drop database `#bak-test`;
+use test;
+create table t (a int primary key) engine=innodb;
+create database `#mysql50##tmp-test`;
+create database `#mysql50##bak-test`;
+create table `#mysql50##tmp-test`.u (
+a int primary key,
+constraint c foreign key d(a) references test.t(a)) engine=innodb;
+create table `#mysql50##bak-test`.u (
+a int primary key,
+constraint c foreign key d(a) references test.t(a)) engine=innodb;
+create or replace table u (
+a int primary key,
+constraint c foreign key d (a) references t (a)) engine=innodb;
+create or replace table u (
+a int primary key,
+constraint c foreign key d (a) references t (a)) engine=innodb;
+drop database `#mysql50##tmp-test`;
+drop database `#mysql50##bak-test`;
+drop table u, t;
+create table t (a int primary key) engine=innodb;
+create or replace table u (
+a int primary key,
+constraint c foreign key d (a) references t (a)) engine=innodb;
+select * from information_schema.innodb_sys_foreign;
+ID	FOR_NAME	REF_NAME	N_COLS	TYPE
+test/c	test/u	test/t	1	0
+select * from information_schema.innodb_sys_foreign_cols;
+ID	FOR_COL_NAME	REF_COL_NAME	POS
+test/c	a	a	0
+create or replace table u (
+a int primary key,
+constraint c foreign key d (a) references t (a)) engine=innodb;
+select * from information_schema.innodb_sys_foreign;
+ID	FOR_NAME	REF_NAME	N_COLS	TYPE
+test/c	test/u	test/t	1	0
+select * from information_schema.innodb_sys_foreign_cols;
+ID	FOR_COL_NAME	REF_COL_NAME	POS
+test/c	a	a	0
+drop tables u, t;
+select * from information_schema.innodb_sys_foreign;
+ID	FOR_NAME	REF_NAME	N_COLS	TYPE
+select * from information_schema.innodb_sys_foreign_cols;
+ID	FOR_COL_NAME	REF_COL_NAME	POS
+set names utf8;
+create database `❎❎❎❎❎❎❎❎❎❎❎❎❎❎❎❎❎❎❎❎❎❎❎❎❎❎❎❎❎❎❎❎❎❎❎❎❎❎❎❎❎❎❎❎❎`;
+use `❎❎❎❎❎❎❎❎❎❎❎❎❎❎❎❎❎❎❎❎❎❎❎❎❎❎❎❎❎❎❎❎❎❎❎❎❎❎❎❎❎❎❎❎❎`;
+create table t (a int primary key) engine=innodb;
+create table u (
+a int primary key,
+constraint `❎❎❎❎❎❎❎❎❎❎❎❎❎❎❎❎❎❎❎❎❎❎❎❎❎❎❎❎❎❎❎❎❎❎❎❎❎❎❎❎❎❎❎❎❎❎❎❎❎❎❎❎❎❎❎❎❎❎❎❎❎❎❎❎` foreign key d (a) references t (a)) engine=innodb;
+select * from information_schema.innodb_sys_foreign;
+ID	FOR_NAME	REF_NAME	N_COLS	TYPE
+@274e@274e@274e@274e@274e@274e@274e@274e@274e@274e@274e@274e@274e@274e@274e@274e@274e@274e@274e@274e@274e@274e@274e@274e@274e@274e@274e@274e@274e@274e@274e@274e@274e@274e@274e@274e@274e@274e@27	@274e@274e@274e@274e@274e@274e@274e@274e@274e@274e@274e@274e@274e@274e@274e@274e@274e@274e@274e@274e@274e@274e@274e@274e@274e@274e@274e@274e@274e@274e@274e@274e@274e@274e@274e@274e@274e@274e@27	@274e@274e@274e@274e@274e@274e@274e@274e@274e@274e@274e@274e@274e@274e@274e@274e@274e@274e@274e@274e@274e@274e@274e@274e@274e@274e@274e@274e@274e@274e@274e@274e@274e@274e@274e@274e@274e@274e@27	1	0
+create or replace table u (
+a int primary key,
+constraint `❎❎❎❎❎❎❎❎❎❎❎❎❎❎❎❎❎❎❎❎❎❎❎❎❎❎❎❎❎❎❎❎❎❎❎❎❎❎❎❎❎❎❎❎❎❎❎❎❎❎❎❎❎❎❎❎❎❎❎❎❎❎❎❎` foreign key d (a) references t (a)) engine=innodb;
+select * from information_schema.innodb_sys_foreign;
+ID	FOR_NAME	REF_NAME	N_COLS	TYPE
+@274e@274e@274e@274e@274e@274e@274e@274e@274e@274e@274e@274e@274e@274e@274e@274e@274e@274e@274e@274e@274e@274e@274e@274e@274e@274e@274e@274e@274e@274e@274e@274e@274e@274e@274e@274e@274e@274e@27	@274e@274e@274e@274e@274e@274e@274e@274e@274e@274e@274e@274e@274e@274e@274e@274e@274e@274e@274e@274e@274e@274e@274e@274e@274e@274e@274e@274e@274e@274e@274e@274e@274e@274e@274e@274e@274e@274e@27	@274e@274e@274e@274e@274e@274e@274e@274e@274e@274e@274e@274e@274e@274e@274e@274e@274e@274e@274e@274e@274e@274e@274e@274e@274e@274e@274e@274e@274e@274e@274e@274e@274e@274e@274e@274e@274e@274e@27	1	0
+show create table u;
+Table	Create Table
+u	CREATE TABLE `u` (
+  `a` int(11) NOT NULL,
+  PRIMARY KEY (`a`),
+  CONSTRAINT `❎❎❎❎❎❎❎❎❎❎❎❎❎❎❎❎❎❎❎❎❎❎❎❎❎❎❎❎❎❎❎❎❎❎❎❎❎❎❎❎❎❎❎❎❎❎❎❎❎❎❎❎❎❎❎❎❎❎❎❎❎❎❎❎` FOREIGN KEY (`a`) REFERENCES `t` (`a`)
+) ENGINE=InnoDB DEFAULT CHARSET=latin1
+use test;
+drop database `❎❎❎❎❎❎❎❎❎❎❎❎❎❎❎❎❎❎❎❎❎❎❎❎❎❎❎❎❎❎❎❎❎❎❎❎❎❎❎❎❎❎❎❎❎`;
