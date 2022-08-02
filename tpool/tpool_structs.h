@@ -40,76 +40,81 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02111 - 1301 USA*/
 namespace tpool
 {
 
-enum cache_notification_mode
-{
-  NOTIFY_ONE,
-  NOTIFY_ALL
-};
-
 /**
   Generic "pointer" cache of a fixed size
   with fast put/get operations.
 
   Compared to STL containers, is faster/does not
-  do allocations. However, put() operation will wait
+  do allocations. However, get() operation will wait
   if there is no free items.
+
+  We assume that put() will only put back the elements that
+  were retrieved previously with get()
 */
 template<typename T> class cache
 {
   std::mutex m_mtx;
   std::condition_variable m_cv;
-  std::vector<T>  m_base;
-  std::vector<T*> m_cache;
-  cache_notification_mode m_notification_mode;
+
+  // Cached items vector. Does not grow or shrink after construction
+  std::vector<T> m_base;
+
+  // Array of pointers to cached items. Protected by m_mtx
+  T **m_cache;
+
+  /* Number of threads waiting for "cache full" condition (s. wait())
+  Protected by m_mtx */
   int m_waiters;
+
+  // Max.number of cached items. Does not change after constructor
+  const size_t m_capacity;
+
+  /* Current cache size. Protected by m_mtx*/
+  size_t m_size;
+
+private:
 
   bool is_full()
   {
-    return m_cache.size() == m_base.size();
+    return m_size == m_capacity;
   }
 
 public:
-  cache(size_t count, cache_notification_mode mode= tpool::cache_notification_mode::NOTIFY_ALL):
-  m_mtx(), m_cv(), m_base(count),m_cache(count), m_notification_mode(mode),m_waiters()
+  cache(size_t count)
+      : m_mtx(), m_cv(), m_base(count), m_cache(new T* [count]), m_waiters(),
+        m_capacity(count), m_size(count)
   {
     for(size_t i = 0 ; i < count; i++)
       m_cache[i]=&m_base[i];
   }
 
-  T* get(bool blocking=true)
+  T* get()
   {
     std::unique_lock<std::mutex> lk(m_mtx);
-    if (blocking)
-    {
-      while(m_cache.empty())
-        m_cv.wait(lk);
-    }
-    else
-    {
-      if(m_cache.empty())
-        return nullptr;
-    }
-    T* ret = m_cache.back();
-    m_cache.pop_back();
-    return ret;
+    while(!m_size)
+      m_cv.wait(lk);
+    //  return last element
+    return m_cache[--m_size];
   }
-
 
   void put(T *ele)
   {
     std::unique_lock<std::mutex> lk(m_mtx);
-    m_cache.push_back(ele);
-    if (m_notification_mode == NOTIFY_ONE)
-      m_cv.notify_one();
-    else if(m_cache.size() == 1)
-      m_cv.notify_all(); // Signal cache is not empty
-    else if(m_waiters && is_full())
-      m_cv.notify_all(); // Signal cache is full
+    assert(m_size <= m_capacity);
+    // put element to the end of the array
+    m_cache[m_size++] = ele;
+
+    /* Notify waiters  when the cache becomes
+     not empty, or when it becomes full */
+    if(m_size == 1 || (m_waiters && is_full()))
+      m_cv.notify_all();
   }
 
+  /* Check if pointer represents cached element */
   bool contains(T* ele)
   {
-    return ele >= &m_base[0] && ele <= &m_base[m_base.size() -1];
+    // No locking required, m_base does not change after construction.
+    return ele >= &m_base[0] && ele <= &m_base[m_capacity -1];
   }
 
   /* Wait until cache is full.*/
@@ -122,9 +127,15 @@ public:
     m_waiters--;
   }
 
+  /* Approximate cache size. A "dirty" read, not used in any critical functionality. */
   TPOOL_SUPPRESS_TSAN size_t size()
   {
-    return m_cache.size();
+    return m_size;
+  }
+
+  ~cache()
+  {
+    delete[] m_cache;
   }
 };
 
