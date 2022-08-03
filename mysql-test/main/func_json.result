@@ -2315,6 +2315,37 @@ SELECT JSON_SCHEMA_VALID(@schema, 'false');
 JSON_SCHEMA_VALID(@schema, 'false')
 0
 # Checking scalar against json schema
+# Checking boolean and null
+SET @schema_true= '{ "type": "true"}';
+SELECT JSON_SCHEMA_VALID(@schema_true, 'true');
+JSON_SCHEMA_VALID(@schema_true, 'true')
+1
+SELECT JSON_SCHEMA_VALID(@schema_true, 'false');
+JSON_SCHEMA_VALID(@schema_true, 'false')
+0
+SELECT JSON_SCHEMA_VALID(@schema_true, 'null');
+JSON_SCHEMA_VALID(@schema_true, 'null')
+0
+SET @schema_false= '{ "type": "false"}';
+SELECT JSON_SCHEMA_VALID(@schema_false, 'true');
+JSON_SCHEMA_VALID(@schema_false, 'true')
+0
+SELECT JSON_SCHEMA_VALID(@schema_false, 'false');
+JSON_SCHEMA_VALID(@schema_false, 'false')
+1
+SELECT JSON_SCHEMA_VALID(@schema_false, 'null');
+JSON_SCHEMA_VALID(@schema_false, 'null')
+0
+SET @schema_null= '{ "type": "null"}';
+SELECT JSON_SCHEMA_VALID(@schema_null, 'true');
+JSON_SCHEMA_VALID(@schema_null, 'true')
+0
+SELECT JSON_SCHEMA_VALID(@schema_null, 'false');
+JSON_SCHEMA_VALID(@schema_null, 'false')
+0
+SELECT JSON_SCHEMA_VALID(@schema_null, 'null');
+JSON_SCHEMA_VALID(@schema_null, 'null')
+1
 # Checking number
 SET @schema_number= '{
   "maximum":7,
@@ -2346,11 +2377,16 @@ JSON_SCHEMA_VALID(@schema_number, '5')
 0
 SET @schema_number= '{
   "type": "number",
-  "maximum":7,
-  "minimum": 3,
-  "multipleOf":3,
-  "const": 4
+  "maximum":100,
+  "minimum": 0,
+  "enum": [1, 2, "3", [4, 5, 6], {"key1":"val1"}]
 }';
+SELECT JSON_SCHEMA_VALID(@schema_number, 1);
+JSON_SCHEMA_VALID(@schema_number, 1)
+1
+SELECT JSON_SCHEMA_VALID(@schema_number, 3);
+JSON_SCHEMA_VALID(@schema_number, 3)
+0
 # Checking string
 SET @schema_string= '{
   "type": "string",
@@ -2379,6 +2415,16 @@ SET @schema_string= '{
 }';
 SELECT JSON_SCHEMA_VALID(@schema_string, '"foobar123"');
 JSON_SCHEMA_VALID(@schema_string, '"foobar123"')
+0
+SET @schema_string= '{
+  "type": "string",
+  "enum": ["red", "green", "blue"]
+}';
+SELECT JSON_SCHEMA_VALID(@schema_string, '"green"');
+JSON_SCHEMA_VALID(@schema_string, '"green"')
+1
+SELECT JSON_SCHEMA_VALID(@schema_string, '"orange"');
+JSON_SCHEMA_VALID(@schema_string, '"orange"')
 0
 # Validating non-scalar
 # Validating array
@@ -2430,4 +2476,38 @@ JSON_SCHEMA_VALID(@schema_array, '[1, 2, 3, "foobar"]')
 SELECT JSON_SCHEMA_VALID(@schema_array, '[1, 2, 3, 4]');
 JSON_SCHEMA_VALID(@schema_array, '[1, 2, 3, 4]')
 1
+SET @schema_array= '{"type":"array",
+                     "enum":[[1,2,3], [4,5,6], [7,8,9]]}';
+SELECT JSON_SCHEMA_VALID(@schema_array, '[4,5,6]');
+JSON_SCHEMA_VALID(@schema_array, '[4,5,6]')
+1
+SELECT JSON_SCHEMA_VALID(@schema_array, '[1,5,7]');
+JSON_SCHEMA_VALID(@schema_array, '[1,5,7]')
+0
+# Validating object
+# Validating simple non-nested object
+SET @schema_object= '{"type":"object",
+                       "properties":
+                        {
+                          "number1":{
+                                      "type":"number",
+                                      "maximum":12,
+                                      "minimum":1
+                                    },
+                          "string1": {
+                                      "type":"string",
+                                      "maxLength":10,
+                                      "minLength": 4
+                                     },
+                          "array1": {"type":"array",
+                                     "maxItems": 4,
+                                     "minItems": 2}
+                        }
+                     }';
+SELECT JSON_SCHEMA_VALID(@schema_object, '{"number1":10, "string1":"foobar","array1":[1,2,3]}');
+JSON_SCHEMA_VALID(@schema_object, '{"number1":10, "string1":"foobar","array1":[1,2,3]}')
+1
+SELECT JSON_SCHEMA_VALID(@schema_object, '{"number1":10, "string1":"foobar","array1":[1,2,3,4,5]}');
+JSON_SCHEMA_VALID(@schema_object, '{"number1":10, "string1":"foobar","array1":[1,2,3,4,5]}')
+0
 # End of 10.10 Test

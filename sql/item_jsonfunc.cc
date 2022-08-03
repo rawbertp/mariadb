@@ -4640,6 +4640,7 @@ bool Item_func_json_overlaps::fix_length_and_dec(THD *thd)
 
 void initialize_curr_constraint(st_json_schema *curr_step)
 {
+  curr_step->next_step= NULL;
   curr_step->common_constraints.type= JSON_VALUE_UNINITIALIZED;
   curr_step->common_constraints.const_value.has_const= 0;
   curr_step->common_constraints.enum_values.flag= 0;
@@ -4651,6 +4652,7 @@ void initialize_curr_constraint(st_json_schema *curr_step)
 
   curr_step->array_constraints.flag= 0;
   curr_step->array_constraints.allowed_item_type= JSON_VALUE_UNINITIALIZED;
+  curr_step->array_constraints.contains_item_type= JSON_VALUE_UNINITIALIZED;
 
   curr_step->object_constraints.has_required= 0;
   curr_step->object_constraints.is_properties_inited= 0;
@@ -4658,14 +4660,8 @@ void initialize_curr_constraint(st_json_schema *curr_step)
   curr_step->is_initialized= 1;
 }
 
-int assign_type(st_common_constraints *curr_common_constraint,
-                 st_array_constraints *curr_arr_constraint,
-                 json_engine_t *je)
+int assign_type(enum json_value_types *curr_type, json_engine_t *je)
 {
-   json_value_types *curr_type = curr_common_constraint ?
-                        &(curr_common_constraint->type) :
-                        &(curr_arr_constraint->allowed_item_type);
-
   if (!strncmp((const char*)je->value, "number", je->value_len))
       *curr_type= JSON_VALUE_NUMBER;
   else if(!strncmp((const char*)je->value, "string", je->value_len))
@@ -4685,13 +4681,11 @@ int assign_type(st_common_constraints *curr_common_constraint,
   return false;
 }
 
-uchar* get_value(const char *buff, size_t *length,
+uchar* get_key_name(const char *key_name, size_t *length,
                      my_bool /* unused */)
 {
-  st_scalar_enum *val= (st_scalar_enum*)buff;
-
-  *length= strlen(val->str);
-  return (uchar*) val;
+  *length= strlen(key_name);
+  return (uchar*) key_name;
 }
 
 /*
@@ -4705,7 +4699,7 @@ int handle_common_constraint_keywords(THD *thd, const char *curr_key,
   if (!strncmp((const char*)curr_key, "type", key_len))
   {
     if (curr_common_constraint->type > JSON_VALUE_UNINITIALIZED ||
-        assign_type(curr_common_constraint, NULL, je))
+        assign_type(&(curr_common_constraint->type), je))
       return true;
   }
   else if(!strncmp((const char*)curr_key, "const", key_len))
@@ -4733,10 +4727,21 @@ int handle_common_constraint_keywords(THD *thd, const char *curr_key,
     if (!curr_common_constraint->enum_values.is_enum_inited)
     {
       if (my_hash_init(PSI_INSTRUMENT_ME,
-                 &curr_common_constraint->enum_values.enum_hash,
-                 je->s.cs, 1024, 0, 0, (my_hash_get_key) get_value,
+                 &curr_common_constraint->enum_values.enum_number,
+                 je->s.cs, 1024, 0, 0, (my_hash_get_key) get_key_name,
+                  0, 0) || my_hash_init(PSI_INSTRUMENT_ME,
+                 &curr_common_constraint->enum_values.enum_string,
+                 je->s.cs, 1024, 0, 0, (my_hash_get_key) get_key_name,
+                  0, 0) ||
+                 my_hash_init(PSI_INSTRUMENT_ME,
+                 &curr_common_constraint->enum_values.enum_array,
+                 je->s.cs, 1024, 0, 0, (my_hash_get_key) get_key_name,
+                  0, 0) ||
+                 my_hash_init(PSI_INSTRUMENT_ME,
+                 &curr_common_constraint->enum_values.enum_object,
+                 je->s.cs, 1024, 0, 0, (my_hash_get_key) get_key_name,
                   0, 0))
-        return true;
+         return true;
       curr_common_constraint->enum_values.is_enum_inited= 1;
     }
 
@@ -4752,35 +4757,64 @@ int handle_common_constraint_keywords(THD *thd, const char *curr_key,
         curr_common_constraint->enum_values.flag|= HAS_FALSE;
       else
       {
-        st_scalar_enum *val= (st_scalar_enum *)
-                            alloc_root(thd->mem_root, sizeof(st_scalar_enum));
-        val->enum_type= je->value_type;
         if (json_value_scalar(je))
         {
-          val->str= (char*)alloc_root(current_thd->mem_root, je->value_len);
-          val->str[je->value_len]= '\0';
-          strncpy(val->str, (const char*)je->value, je->value_len);
-           if (my_hash_insert(
-                   &curr_common_constraint->enum_values.enum_hash,
+          char *val= (char*)alloc_root(thd->mem_root, sizeof(je->value_len));
+          val[je->value_len]= '\0';
+          strncpy(val, (const char*)je->value, je->value_len);
+          if (je->value_type == JSON_VALUE_NUMBER)
+          {
+            if (my_hash_insert(
+                   &curr_common_constraint->enum_values.enum_number,
                    (const uchar*)(val)))
              return true;
+          }
+          else
+          {
+            if (my_hash_insert(
+                   &curr_common_constraint->enum_values.enum_string,
+                   (const uchar*)(val)))
+             return true;
+          }
         }
         else
         {
+          char *val_begin= (char*)je->value;
+          if (json_skip_level(je))
+            return true;
+          char *val_end= (char *)je->s.c_str;
+          char *val= (char*)malloc(val_end-val_begin);
+          val[val_end-val_begin]= '\0';
+          strncpy(val, (const char*)je->value, val_end-val_begin);
           DYNAMIC_STRING a_res;
           if (init_dynamic_string(&a_res, NULL, 0, 0))
-            goto free;
-          if (json_normalize(&a_res, (const char*)je->value, je->value_len,
-                            je->s.cs))
-            goto free;
-          val->str= (char *)alloc_root(thd->mem_root, sizeof(a_res.length));
-          strncpy((char*)val->str, (const char*)a_res.str, a_res.length);
-          if (my_hash_insert(
-                   &curr_common_constraint->enum_values.enum_hash,
-                   (const uchar*)(val)))
-           return true;
-          free:
-           dynstr_free(&a_res);
+          {
+            dynstr_free(&a_res);
+            return true;
+          }
+          if (json_normalize(&a_res, (const char*)val, val_end-val_begin, je->s.cs))
+          {
+            dynstr_free(&a_res);
+            return true;
+          }
+          char *temp= (char*)alloc_root(thd->mem_root, a_res.length);
+          temp[a_res.length]= '\0';
+          strncpy(temp, (const char*)a_res.str, a_res.length);
+          if (je->value_type == JSON_VALUE_ARRAY)
+          {
+           if (my_hash_insert(
+                   &curr_common_constraint->enum_values.enum_array,
+                   (const uchar*)(temp)))
+             return true; 
+          }
+          else
+          {
+            if (my_hash_insert(
+                   &curr_common_constraint->enum_values.enum_object,
+                   (const uchar*)(temp)))
+             return true;
+          }
+          dynstr_free(&a_res);
         }
       }
     }
@@ -4893,9 +4927,39 @@ int handle_array_constraint_keyword(const char *curr_key,
        curr_common_constraint->type == JSON_VALUE_UNINITIALIZED)
     {
       if (json_scan_next(je) || json_read_value(je) ||
-          assign_type(NULL, curr_array_constraint, je))
+          assign_type(&(curr_array_constraint->allowed_item_type), je))
         return true;
     }
+  }
+  else if (!strncmp((const char*)curr_key, "contains", key_len))
+  {
+    if (json_read_value(je) || je->value_type != JSON_VALUE_OBJECT)
+      return 1;
+    int curr_level= je->stack_p;
+    while(json_scan_next(je) && je->stack_p >= curr_level-1)
+    {
+      const uchar *key_end, *key_start= je->s.c_str;
+      do
+      {
+        key_end= je->s.c_str;
+      } while (json_read_keyname_chr(je) == 0);
+
+      if (strncmp((const char*)"type", (const char*)key_start, key_end-key_start))
+        return 1;
+      if (json_scan_next(je) || json_read_value(je) ||
+          assign_type(&(curr_array_constraint->contains_item_type), je))
+        return true; 
+    }
+  }
+  else if (!strncmp((const char*)curr_key, "maxContains", key_len))
+  {
+    curr_array_constraint->max_contains= val;
+    curr_array_constraint->flag|= HAS_MAX_CONTAINS;
+  }
+  else if (!strncmp((const char*)curr_key, "minContains", key_len))
+  {
+    curr_array_constraint->min_contains= val;
+    curr_array_constraint->flag|= HAS_MIN_CONTAINS;
   }
   else
     res= true;
@@ -5034,6 +5098,7 @@ int handle_keyword(THD *thd, const char *curr_key, st_json_schema *curr_step,
               !strncmp((const char*)curr_key, "description", key_len) ||
               !strncmp((const char*)curr_key, "$comment", key_len)))
   {
+    /*Skip the values for these because we are not going to "validate" them. */
     res= 0;
     if (json_read_value(je) || je->value_type != JSON_VALUE_STRING)
       return 1;
@@ -5068,6 +5133,7 @@ int handle_keyword(THD *thd, const char *curr_key, st_json_schema *curr_step,
                                           val, key_len,
                                           &curr_step->common_constraints,
                                           je, count);
+  /* Send error about keyword not handled. */
   return res;
 }
 
@@ -5080,38 +5146,40 @@ int validate_scalar(json_engine_t *je, st_json_schema *curr_step)
    st_const_value *curr_const_value=
                       &curr_step->common_constraints.const_value;
    json_engine_t  *curr_step_json= &(curr_const_value->const_json_value);
-   int res= 1, enum_val_not_found= false;
+   int res= 1, enum_validated= true;
 
-  if (curr_step->common_constraints.enum_values.is_enum_inited)
-  {
+   uint enum_flag= curr_step->common_constraints.enum_values.flag;
+   if ((enum_flag & je->value_type))
+     enum_validated= true;
+   if (curr_step->common_constraints.enum_values.is_enum_inited)
+   {
     char *temp= (char*)malloc(je->value_len);
     temp[je->value_len]= '\0';
     strncpy(temp, (const char*)je->value, je->value_len);
-    st_scalar_enum *curr_val;
-    if (je->value_type == JSON_VALUE_NUMBER ||
-        je->value_type == JSON_VALUE_STRING)
+    char *val_found;
+    if (je->value_type == JSON_VALUE_NUMBER)
     {
-      if ((curr_val= (st_scalar_enum*)my_hash_search(
-            &curr_step->common_constraints.enum_values.enum_hash,
-            (const uchar*)temp, je->value_len)))
+      if (!(val_found= (char*)my_hash_search(
+            &curr_step->common_constraints.enum_values.enum_number,
+            (const uchar*)temp, strlen(temp))))
       {
-        if (curr_val->enum_type != je->value_type)
-          enum_val_not_found= true;
+        enum_validated= false;
+      }
+    }
+    else if (je->value_type == JSON_VALUE_STRING)
+    {
+      if (!(val_found= (char*)my_hash_search(
+            &curr_step->common_constraints.enum_values.enum_string,
+            (const uchar*)temp, strlen(temp))))
+      {
+        enum_validated= false;
       }
     }
     else
-    {
-      uint curr_flag= curr_step->common_constraints.enum_values.flag;
-      if ((je->value_type == JSON_VALUE_NULL && (curr_flag & HAS_NULL)) ||
-           (je->value_type == JSON_VALUE_TRUE && (curr_flag & HAS_TRUE)) ||
-           (je->value_type == JSON_VALUE_TRUE && (curr_flag & HAS_TRUE)))
-        enum_val_not_found= true;
-    }
-    if (je->value_len)
-     free(temp);
-    if (!enum_val_not_found)
-      return true;
+     return false;
   }
+  if (!enum_validated)
+    return true;
 
   if (je->value_type == JSON_VALUE_NUMBER)
   {
@@ -5165,6 +5233,14 @@ int validate_scalar(json_engine_t *je, st_json_schema *curr_step)
                                        str_const_validated : true))
       res= false;
   }
+  else
+  {
+    /*
+      If value_type is NULL, TRUE, or FALSE. We have already validated it
+      before calling validate_scalar() so just set res to false.
+    */
+    res= false;
+  }
 
   return res;
 }
@@ -5173,7 +5249,8 @@ bool validate_array(json_engine_t *je,
                         json_engine_t *const_je,
                          st_json_schema *curr_step)
 {
-  int number_of_elements= 0, level;
+  int number_of_elements= 0, level, contains= 0;
+  bool contains_validated= false;
   st_array_constraints *curr_constraint_arr= &curr_step->array_constraints;
 
   json_engine_t temp_je= *je;
@@ -5185,12 +5262,29 @@ bool validate_array(json_engine_t *je,
     if (curr_constraint_arr->allowed_item_type != JSON_VALUE_UNINITIALIZED &&
         (curr_constraint_arr->allowed_item_type != temp_je.value_type))
       return true;
+    if (curr_constraint_arr->contains_item_type != JSON_VALUE_UNINITIALIZED &&
+             curr_constraint_arr->contains_item_type == temp_je.value_type)
+    {
+      contains_validated= true;
+      contains++;
+    }
+      contains_validated= true;
     if (temp_je.stack_p < level)
       break;
     if (!json_value_scalar(&temp_je))
       json_skip_level(&temp_je);
     number_of_elements++;
   }
+  if (curr_constraint_arr->contains_item_type != JSON_VALUE_UNINITIALIZED &&
+      !contains_validated)
+    return false;
+  if ((curr_constraint_arr->contains_item_type != JSON_VALUE_UNINITIALIZED) &&
+      (curr_constraint_arr->flag & HAS_MAX_CONTAINS ?
+       contains <= curr_constraint_arr->max_contains : true) &&
+      (curr_constraint_arr->flag & HAS_MIN_CONTAINS ?
+       contains >= curr_constraint_arr->max_contains : true))
+    return false;
+
   if (curr_step->common_constraints.const_value.has_const)
   {
     if (json_read_value(const_je))
@@ -5204,13 +5298,6 @@ bool validate_array(json_engine_t *je,
         number_of_elements >= curr_constraint_arr->min_items : true))
     return false;
   return true;
-}
-
-uchar* get_key_name(const char *key_name, size_t *length,
-                     my_bool /* unused */)
-{
-  *length= strlen(key_name);
-  return (uchar*) key_name;
 }
 
 bool validate_object(json_engine_t *je,
@@ -5327,9 +5414,13 @@ bool validate_object(json_engine_t *je,
       if (!(temp_key_word= (LEX_CSTRING*) my_hash_search( &temp,
                                         (const uchar*) (&required_arr)->value,
                                         (&required_arr)->value_len)))
+      {
+        my_hash_free(&temp);
         return true;
+      }
     }
   }
+  my_hash_free(&temp);
   return false;
 }
 
@@ -5343,29 +5434,47 @@ int validate_non_scalar(json_engine_t *je,
 {
   if(curr_step->common_constraints.enum_values.is_enum_inited)
   {
-    int res= false;
-    st_scalar_enum *val= (st_scalar_enum*)alloc_root(current_thd->mem_root, je->value_len);
+    json_engine_t temp_je= *je;
+    char *val_begin= (char*)temp_je.value;
+    if (json_skip_level(&temp_je))
+      return true;
+    char *val_end= (char*)temp_je.s.c_str;
+    char *val= (char*)malloc(val_end-val_begin);
+    strncpy(val, (const char*)val_begin, val_end-val_begin);
     DYNAMIC_STRING a_res;
+    char *res;
     if (init_dynamic_string(&a_res, NULL, 0, 0))
-      goto free_curr;
-    if (json_normalize(&a_res, (const char*)je->value-1, je->value_len,
+    {
+      dynstr_free(&a_res);
+      return true;
+    }
+    if (json_normalize(&a_res, (const char*)val, val_end-val_begin,
                         je->s.cs))
     {
-      res= true;
-      goto free_curr;
-    }
-    val->str[a_res.length]= '\0';
-    val->str= a_res.str;
-    if (my_hash_search(
-             &curr_step->common_constraints.enum_values.enum_hash,
-             (const uchar*)val->str, a_res.length))
-    {
-      res= true;
-      goto free_curr;
-    }
-    free_curr:
       dynstr_free(&a_res);
-      return res;
+      return true;
+    }
+    if (je->value_type == JSON_VALUE_ARRAY)
+    {
+      if (!(res=(char*)my_hash_search(
+            &curr_step->common_constraints.enum_values.enum_array,
+            (const uchar*)a_res.str, a_res.length)))
+      {
+       dynstr_free(&a_res);
+      return true;
+      }
+    }
+    else
+    {
+      if (!(res=(char*)my_hash_search(
+            &curr_step->common_constraints.enum_values.enum_object,
+            (const uchar*)a_res.str, a_res.length)))
+      {
+        dynstr_free(&a_res);
+      return true;
+      }
+    }
+    dynstr_free(&a_res);
   }
   if (je->value_type == JSON_VALUE_ARRAY)
     return validate_array(je, const_je, curr_step);
@@ -5388,11 +5497,16 @@ int validate_against_schema(json_engine_t *je,
       je->value_type != curr_step->common_constraints.type)
     return true;
 
-  if (json_value_scalar(je) && validate_scalar(je, curr_step))
-    return true;
-  else if (validate_non_scalar(je, const_je, curr_step, NULL))
-     return true;
-
+  if (json_value_scalar(je))
+  {
+    if (validate_scalar(je, curr_step))
+      return true;
+  }
+  else
+  {
+    if (validate_non_scalar(je, const_je, curr_step, NULL))
+      return true;
+  }
   return false;
 }
 
@@ -5406,7 +5520,7 @@ int validate_json_schema(THD *thd, json_engine_t *je,
  curr_step->is_initialized= 1;
 
   int level= je->stack_p;
-  while (json_scan_next(je)== 0 && je->stack_p >= level)
+  while (je->s.c_str < je->s.str_end && json_scan_next(je)== 0 && je->stack_p >= level)
   {
      switch(je->state)
      {
@@ -5455,25 +5569,33 @@ longlong Item_func_json_schema_valid::val_int()
     res= 0;
   if (unlikely(ve.s.error))
     res= 0;
-
-  for (int i= 0; i <= count; i++)
+  
+  st_json_schema *temp_curr_step= &(curr_step[0]);
+  do
   {
-    if (curr_step[i].common_constraints.type > JSON_VALUE_UNINITIALIZED)
+    if (temp_curr_step->common_constraints.type > JSON_VALUE_UNINITIALIZED)
     {
-      if (curr_step[i].common_constraints.type == JSON_VALUE_OBJECT)
+      if (temp_curr_step->common_constraints.enum_values.is_enum_inited)
       {
-        st_object_constraints *curr_obj= &curr_step[i].object_constraints;
+        st_enum *curr_enum= &(temp_curr_step->common_constraints.enum_values);
+        if (curr_enum->is_enum_inited)
+        {
+          my_hash_free(&curr_enum->enum_number);
+          my_hash_free(&curr_enum->enum_string);
+          my_hash_free(&curr_enum->enum_array);
+          my_hash_free(&curr_enum->enum_object);
+        }
+      }
+      if (temp_curr_step->common_constraints.type == JSON_VALUE_OBJECT)
+      {
+        st_object_constraints *curr_obj= &(temp_curr_step->object_constraints);
         if (curr_obj->is_properties_inited)
           my_hash_free(&curr_obj->properties);
       }
-      if (curr_step[i].common_constraints.enum_values.is_enum_inited)
-      {
-        st_enum *curr_enum= &curr_step[i].common_constraints.enum_values;
-        if (curr_enum->is_enum_inited)
-          my_hash_free(&curr_enum->enum_hash);
-      }
     }
-  }
+    temp_curr_step= temp_curr_step->next_step;
+  }while(temp_curr_step);
+ 
   if (ve.s.error)
     report_json_error(val, &ve, 1);
   return res;
@@ -5499,5 +5621,5 @@ bool Item_func_json_schema_valid::fix_length_and_dec(THD *thd)
   if (je.s.error)
    res= 1;
 
-  return res | Item_bool_func::fix_length_and_dec(thd);
+  return res || Item_bool_func::fix_length_and_dec(thd);
 }

@@ -457,16 +457,13 @@ typedef struct const_value
   int has_const;
 } st_const_value;
 
-typedef struct enum_str_or_number
-{
-  char *str;
-  enum json_value_types enum_type;
-} st_scalar_enum;
-
 enum enum_flags { HAS_NONE= 0, HAS_TRUE= 2, HAS_FALSE= 4, HAS_NULL= 6};
 typedef struct enum_value
 {
-  HASH enum_hash;
+  HASH enum_number;
+  HASH enum_string;
+  HASH enum_object;
+  HASH enum_array;
   uint flag; /* for null and boolean */
   int is_enum_inited;
 } st_enum;
@@ -496,11 +493,12 @@ typedef struct string_constraints
 }st_string_constraints;
 
 enum array_property_flag
-{ HAS_NO_ARRAY_FLAG= 0, HAS_MAX_ITEMS= 2, HAS_MIN_ITEMS= 4};
+{ HAS_NO_ARRAY_FLAG= 0, HAS_MAX_ITEMS= 2, HAS_MIN_ITEMS= 4, HAS_MAX_CONTAINS=8, HAS_MIN_CONTAINS= 16};
 typedef struct array_constraints
 {
-  double max_items, min_items;
+  double max_items, min_items, min_contains, max_contains;
   enum json_value_types allowed_item_type;
+  enum json_value_types contains_item_type;
   uint flag;
 }st_array_constraints;
 
