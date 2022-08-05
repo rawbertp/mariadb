@@ -662,7 +662,7 @@ dict_table_t::parse_name<>(char(&)[NAME_LEN + 1], char(&)[NAME_LEN + 1],
 @param[in]      table_op        operation to perform when opening
 @return table object after locking MDL shared
 @retval nullptr if the table is not readable, or if trylock && MDL blocked */
-template<bool trylock>
+template<bool trylock, bool purge_thd>
 dict_table_t*
 dict_acquire_mdl_shared(dict_table_t *table,
                         THD *thd,
@@ -674,6 +674,7 @@ dict_acquire_mdl_shared(dict_table_t *table,
 
   MDL_context *mdl_context= static_cast<MDL_context*>(thd_mdl_context(thd));
   size_t db_len;
+  bool purge_stop= false;
 
   if (trylock)
   {
@@ -748,7 +749,13 @@ retry:
     }
   }
 
+retry_table_open:
   dict_sys.freeze(SRW_LOCK_CALL);
+  if (purge_thd && purge_sys.must_wait_FTS())
+  {
+    purge_stop= true;
+    goto return_without_mdl;
+  }
   table= dict_sys.find_table(table_id);
   if (table)
     table->acquire();
@@ -756,6 +763,11 @@ retry:
   {
     dict_sys.unfreeze();
     dict_sys.lock(SRW_LOCK_CALL);
+    if (purge_thd && purge_sys.must_wait_FTS())
+    {
+      dict_sys.unlock();
+      goto retry_table_open;
+    }
     table= dict_load_table_on_id(table_id,
                                  table_op == DICT_TABLE_OP_LOAD_TABLESPACE
                                  ? DICT_ERR_IGNORE_RECOVER_LOCK
@@ -777,6 +789,8 @@ return_without_mdl:
       mdl_context->release_lock(*mdl);
       *mdl= nullptr;
     }
+    if (purge_stop)
+      return reinterpret_cast<dict_table_t*>(-1);
     return nullptr;
   }
 
@@ -814,9 +828,11 @@ return_without_mdl:
   goto retry;
 }
 
-template dict_table_t* dict_acquire_mdl_shared<false>
+template dict_table_t* dict_acquire_mdl_shared<false, false>
 (dict_table_t*,THD*,MDL_ticket**,dict_table_op_t);
-template dict_table_t* dict_acquire_mdl_shared<true>
+template dict_table_t* dict_acquire_mdl_shared<true, false>
+(dict_table_t*,THD*,MDL_ticket**,dict_table_op_t);
+template dict_table_t* dict_acquire_mdl_shared<false, true>
 (dict_table_t*,THD*,MDL_ticket**,dict_table_op_t);
 
 /** Look up a table by numeric identifier.
@@ -842,13 +858,14 @@ dict_table_open_on_id(table_id_t table_id, bool dict_locked,
   {
     if (purge_thd && purge_sys.must_wait_FTS())
     {
-      table= nullptr;
+      table= reinterpret_cast<dict_table_t*>(-1);
       goto func_exit;
     }
 
     table->acquire();
     if (thd && !dict_locked)
-      table= dict_acquire_mdl_shared<false>(table, thd, mdl, table_op);
+      table= dict_acquire_mdl_shared<false, purge_thd>(
+               table, thd, mdl, table_op);
   }
   else if (table_op != DICT_TABLE_OP_OPEN_ONLY_IF_CACHED)
   {
@@ -866,7 +883,7 @@ dict_table_open_on_id(table_id_t table_id, bool dict_locked,
       if (purge_thd && purge_sys.must_wait_FTS())
       {
         dict_sys.unlock();
-        return nullptr;
+        return reinterpret_cast<dict_table_t*>(-1);
       }
       table->acquire();
     }
@@ -876,7 +893,8 @@ dict_table_open_on_id(table_id_t table_id, bool dict_locked,
       if (table && thd)
       {
         dict_sys.freeze(SRW_LOCK_CALL);
-        table= dict_acquire_mdl_shared<false>(table, thd, mdl, table_op);
+        table= dict_acquire_mdl_shared<false, purge_thd>(
+                 table, thd, mdl, table_op);
         dict_sys.unfreeze();
       }
       return table;

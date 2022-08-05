@@ -130,9 +130,11 @@ enum dict_table_op_t {
 @param[in,out]  thd             background thread
 @param[out]     mdl             mdl ticket
 @param[in]      table_op        operation to perform when opening
+@param[out]     purge_stop      true if purge thread should wait,
+                                nullptr for non-purge threads
 @return table object after locking MDL shared
 @retval NULL if the table is not readable, or if trylock && MDL blocked */
-template<bool trylock>
+template<bool trylock, bool purge_thd= false>
 dict_table_t*
 dict_acquire_mdl_shared(dict_table_t *table,
                         THD *thd,
