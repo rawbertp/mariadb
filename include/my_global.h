@@ -1197,4 +1197,11 @@ typedef struct { const char *dli_fname, dli_fbase; } Dl_info;
 #else
 #define NOT_FIXED_DEC           FLOATING_POINT_DECIMALS
 #endif
+
+#ifdef __cplusplus
+constexpr size_t LEN(const char *str)
+{
+  return *str ? 1 + LEN(str + 1) : 0;
+}
+#endif /* __cplusplus */
 #endif /* my_global_h */

@@ -25,19 +25,38 @@ CREATE TABLE t (a INT PRIMARY KEY) ENGINE=InnoDB;
 # corresponding to the 51 characters below: 5*51=255.
 let $d255=###################################################;
 let $d250=##################################################;
+let $d245=#################################################;
 --replace_result $d255 d255
 eval CREATE DATABASE `$d255`;
+
 --replace_result $d255 d255
 --error ER_IDENT_CAUSES_TOO_LONG_PATH
 eval CREATE TABLE `$d255`.`$d255`
 (a INT PRIMARY KEY, FOREIGN KEY(a) REFERENCES test.t(a)) ENGINE=InnoDB;
+
+--replace_result $d255 d255
+--error ER_IDENT_CAUSES_TOO_LONG_PATH
+eval CREATE OR REPLACE TABLE `$d255`.`$d255`
+(a INT PRIMARY KEY, FOREIGN KEY(a) REFERENCES test.t(a)) ENGINE=InnoDB;
+
 --replace_result $d255 d255
 --error ER_IDENT_CAUSES_TOO_LONG_PATH
 eval CREATE TABLE `$d255`.`_$d250`
 (a INT PRIMARY KEY, FOREIGN KEY(a) REFERENCES test.t(a)) ENGINE=InnoDB;
+
+--replace_result $d255 d255
+--error ER_IDENT_CAUSES_TOO_LONG_PATH
+eval CREATE OR REPLACE TABLE `$d255`.`_$d250`
+(a INT PRIMARY KEY, FOREIGN KEY(a) REFERENCES test.t(a)) ENGINE=InnoDB;
+
 --replace_result $d255 d255
 eval CREATE TABLE `$d255`.`$d250`
 (a INT PRIMARY KEY, FOREIGN KEY(a) REFERENCES test.t(a)) ENGINE=InnoDB;
+
+--replace_result $d255 d255 $d245 d245
+eval CREATE OR REPLACE TABLE `$d255`.`$d245`
+(a INT PRIMARY KEY, FOREIGN KEY(a) REFERENCES test.t(a)) ENGINE=InnoDB;
+
 --replace_result $d255 d255
 eval DROP DATABASE `$d255`;
 DROP TABLE t;

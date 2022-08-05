@@ -3090,7 +3090,7 @@ loop:
 
 	/* Copy the string because the page may be modified or evicted
 	after mtr.commit() below. */
-	char	fk_id[MAX_TABLE_NAME_LEN + NAME_LEN];
+	char	fk_id[MAX_TABLE_NAME_LEN + NAME_LEN - MAX_TMP_PREFIX_LEN];
 	err = DB_SUCCESS;
 	if (UNIV_LIKELY(len < sizeof fk_id)) {
 		memcpy(fk_id, field, len);
