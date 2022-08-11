@@ -889,7 +889,7 @@ row_ins_foreign_fill_virtual(
 	const rec_offs*	offsets =
 		rec_get_offsets(rec, index, offsets_, index->n_core_fields,
 				ULINT_UNDEFINED, &cascade->heap);
-	TABLE*		mysql_table= NULL;
+	TABLE*		mysql_table= cascade->prebuilt->m_mysql_table;
 	upd_t*		update = cascade->update;
 	ulint		n_v_fld = index->table->n_v_def;
 	ulint		n_diff;
@@ -908,7 +908,7 @@ row_ins_foreign_fill_virtual(
 	}
 
 	ib_vcol_row vc(NULL);
-	uchar *record = vc.record(thd, index, &mysql_table);
+	uchar *record = vc.record(thd, index, mysql_table);
 	if (!record) {
 		return DB_OUT_OF_MEMORY;
 	}
@@ -987,6 +987,7 @@ uint sql_log_cascade_delete(TABLE *table);
 
 static bool row_ins_store_row_in_mysql(dtuple_t *row,
                                        row_prebuilt_t *prebuilt,
+                                       dict_index_t *index,
                                        uchar *mysql_rec)
 {
   mysql_row_templ_t *templ= prebuilt->mysql_template;
@@ -1017,7 +1018,7 @@ static bool row_ins_store_row_in_mysql(dtuple_t *row,
       }
 
       row_sel_field_store_in_mysql_format(mysql_rec + templ->mysql_col_offset,
-                                          templ, prebuilt->index,
+                                          templ, index,
                                           templ->clust_rec_field_no,
                                           data, len);
     }
@@ -1028,15 +1029,10 @@ static bool row_ins_store_row_in_mysql(dtuple_t *row,
 }
 
 static dberr_t report_row_update(upd_node_t *cascade,
-                                 dict_index_t* clust_index)
+                                 dict_index_t* clust_index,
+                                 row_prebuilt_t *prebuilt)
 {
-  dict_table_t *table= clust_index->table;
-  TABLE *maria_table= innodb_find_table_for_vc(current_thd, table);
-  ha_innobase *ib_handler= (ha_innobase*)maria_table->file;
-  row_prebuilt_t *prebuilt= ib_handler->get_prebuilt();
-
-  ib_handler->build_template(true);
-  prebuilt->index= clust_index;
+  TABLE *maria_table= prebuilt->m_mysql_table;
 
   ulint n_ext= dtuple_get_n_ext(cascade->row)
                + (cascade->is_delete ? 0 : dtuple_get_n_ext(cascade->upd_row));
@@ -1066,6 +1062,7 @@ static dberr_t report_row_update(upd_node_t *cascade,
   }
 
   if (UNIV_UNLIKELY(!row_ins_store_row_in_mysql(cascade->row, prebuilt,
+                                                clust_index,
                                                 maria_table->record[0])))
     return DB_OUT_OF_MEMORY;
 
@@ -1077,6 +1074,7 @@ static dberr_t report_row_update(upd_node_t *cascade,
   else
   {
     if (UNIV_UNLIKELY(!row_ins_store_row_in_mysql(cascade->upd_row, prebuilt,
+                                                  clust_index,
                                                   maria_table->record[1])))
       return DB_OUT_OF_MEMORY;
     if (UNIV_UNLIKELY(sql_log_cascade_update(maria_table)))
@@ -1102,6 +1100,8 @@ row_ins_foreign_check_on_constraint(
 	btr_pcur_t*	pcur,		/*!< in: cursor placed on a matching
 					index record in the child table */
 	dtuple_t*	entry,		/*!< in: index entry in the parent
+					table */
+	row_prebuilt_t* prebuilt,	/*!< in: referenced prebuilt for this
 					table */
 	mtr_t*		mtr)		/*!< in: mtr holding the latch of pcur
 					page */
@@ -1163,13 +1163,14 @@ row_ins_foreign_check_on_constraint(
 	if (node->cascade_node == NULL) {
 		node->cascade_heap = mem_heap_create(128);
 		node->cascade_node = row_create_update_node_for_mysql(
-			table, node->cascade_heap);
+			table, node->cascade_heap, prebuilt);
 		que_node_set_parent(node->cascade_node, node);
 
 	}
 	cascade = node->cascade_node;
 	cascade->table = table;
 	cascade->foreign = foreign;
+	cascade->prebuilt = prebuilt;
 
 	if (node->is_delete
 	    && (foreign->type & DICT_FOREIGN_ON_DELETE_CASCADE)) {
@@ -1458,7 +1459,7 @@ row_ins_foreign_check_on_constraint(
 					   foreign->foreign_table);
 
 	if (UNIV_UNLIKELY(table->sql_is_online_alter) && UNIV_LIKELY(!err))
-		err = report_row_update(cascade, clust_index);
+		err = report_row_update(cascade, clust_index, prebuilt);
 
 	mtr_start(mtr);
 
@@ -1573,6 +1574,9 @@ row_ins_check_foreign_constraint(
 	dict_table_t*	table,	/*!< in: if check_ref is TRUE, then the foreign
 				table, else the referenced table */
 	dtuple_t*	entry,	/*!< in: index entry for index */
+	row_prebuilt_t* prebuilt,
+				/*!< in: referenced prebuilt for this table.
+				NULL if check_ref is TRUE */
 	que_thr_t*	thr)	/*!< in: query thread */
 {
 	upd_node_t*	upd_node;
@@ -1853,7 +1857,7 @@ row_ins_check_foreign_constraint(
 
 					err = row_ins_foreign_check_on_constraint(
 						thr, foreign, &pcur, entry,
-						&mtr);
+						prebuilt, &mtr);
 					if (err != DB_SUCCESS) {
 						/* Since reporting a plain
 						"duplicate key" error
@@ -2060,7 +2064,7 @@ row_ins_check_foreign_constraints(
 			}
 
 			err = row_ins_check_foreign_constraint(
-				TRUE, foreign, table, ref_tuple, thr);
+				TRUE, foreign, table, ref_tuple, NULL, thr);
 
 			if (ref_table) {
 				dict_table_close(ref_table);

@@ -1567,6 +1567,8 @@ public:
 
   online_alter_cache_data *online_alter_cache;
 
+  List<FOREIGN_KEY_INFO> *fk_ref_list;
+
   inline void reset() { bzero((void*)this, sizeof(*this)); }
   void init(THD *thd, TABLE_LIST *tl);
   bool fill_item_list(List<Item> *item_list) const;
@@ -1870,6 +1872,7 @@ typedef struct st_foreign_key_info
   LEX_CSTRING *referenced_key_name;
   List<LEX_CSTRING> foreign_fields;
   List<LEX_CSTRING> referenced_fields;
+  TABLE_LIST *table_list;
 } FOREIGN_KEY_INFO;
 
 LEX_CSTRING *fk_option_name(enum_fk_option opt);
