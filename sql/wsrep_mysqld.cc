@@ -588,19 +588,9 @@ int wsrep_init()
 
   if ((rcode= wsrep_load(wsrep_provider, &wsrep, wsrep_log_cb)) != WSREP_OK)
   {
-    if (strcasecmp(wsrep_provider, WSREP_NONE))
-    {
-      WSREP_ERROR("wsrep_load(%s) failed: %s (%d). Reverting to no provider.",
-                  wsrep_provider, strerror(rcode), rcode);
-      strcpy((char*)wsrep_provider, WSREP_NONE); // damn it's a dirty hack
-      return wsrep_init();
-    }
-    else /* this is for recursive call above */
-    {
-      WSREP_ERROR("Could not revert to no provider: %s (%d). Need to abort.",
-                  strerror(rcode), rcode);
-      unireg_abort(1);
-    }
+    WSREP_ERROR("wsrep_load(%s) failed: %s (%d). Need to abort.",
+                wsrep_provider, strerror(rcode), rcode);
+    unireg_abort(1);
   }
 
   if (!WSREP_PROVIDER_EXISTS)
